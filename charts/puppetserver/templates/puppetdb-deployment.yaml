@@ -1,0 +1,195 @@
+{{- if and .Values.puppetdb.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ template "puppetserver.name" . }}-puppetdb
+  labels:
+    {{- include "puppetserver.puppetdb.labels" . | nindent 4 }}
+    {{- with .Values.puppetdb.extraLabels }}
+    {{ toYaml . | indent 6 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "puppetserver.puppetdb.matchLabels" . | nindent 6 }}
+  {{- if .Values.puppetdb.updateStrategy }}
+  strategy: {{- toYaml .Values.puppetdb.updateStrategy | nindent 4 }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "puppetserver.puppetdb.labels" . | nindent 8 }}
+      {{- if .Values.podAnnotations }}
+      annotations:
+        {{- toYaml .Values.podAnnotations | nindent 8 }}
+      {{- end }}
+    spec:
+      hostname: puppetdb
+      {{- if .Values.puppetdb.serviceAccount.enabled }}
+      serviceAccountName: {{ include "puppetserver.puppetdb.serviceAccount.name" . }}
+      {{- end }}
+      containers:
+        {{- with .Values.puppetdb.extraContainers }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+        - name: puppetdb
+          image: "{{.Values.puppetdb.image}}:{{.Values.puppetdb.tag}}"
+          imagePullPolicy: "{{.Values.puppetdb.pullPolicy}}"
+          resources:
+            {{- toYaml .Values.puppetdb.resources | nindent 12 }}
+          env:
+            - name: PUPPETSERVER_HOSTNAME
+              value: "puppet"
+            - name: PUPPETSERVER_PORT
+              value: "{{ template "puppetserver.puppetserver-masters.port" . }}"
+            {{- if not (hasKey .Values.puppetdb.extraEnv "PUPPETDB_POSTGRES_HOSTNAME") }}
+            - name: PUPPETDB_POSTGRES_HOSTNAME
+              value: "{{ template "puppetserver.name" . }}-postgresql"
+            {{- end }}
+            - name: PUPPETDB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ template "puppetdb.secret" . }}
+                  key: password
+            - name: PUPPETDB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ template "puppetdb.secret" . }}
+                  key: username
+            {{- range $key, $value := .Values.puppetdb.extraEnv }}
+            - name: {{ $key }}
+              value: "{{ $value }}"
+            {{- end }}
+          ports:
+            - name: pdb-http
+              containerPort: 8080
+            - name: pdb-https
+              containerPort: 8081
+          volumeMounts:
+            - name: puppetdb-storage
+              mountPath: /opt/puppetlabs/server/data/puppetdb/certs
+            {{- if .Values.puppetdb.metrics.enabled }}
+            - name: puppetdb-metrics-volume
+              mountPath: /etc/puppetlabs/puppetdb/jolokia-access.xml
+              subPath: jolokia-access.xml
+            - name: puppetdb-metrics-volume
+              mountPath: /etc/puppetlabs/puppetdb/conf.d/metrics.conf
+              subPath: metrics.conf
+            {{- end -}}
+        {{- if .Values.puppetboard.enabled }}
+        - name: puppetboard
+          image: "{{.Values.puppetboard.image}}:{{.Values.puppetboard.tag}}"
+          imagePullPolicy: "{{.Values.puppetboard.pullPolicy}}"
+          resources:
+            {{- toYaml .Values.puppetboard.resources | nindent 12 }}
+          env:
+            - name: PUPPETDB_HOST
+              value: "{{ .Values.singleCA.puppetdb.overrideHostname | default "puppetdb"  }}"
+            - name: PUPPETDB_PORT
+              value: "8081"
+            - name: PUPPETDB_SSL_VERIFY
+              value: "/opt/puppetlabs/server/data/puppetdb/certs/certs/ca.pem"
+            - name: PUPPETDB_CERT
+              value: "/opt/puppetlabs/server/data/puppetdb/certs/certs/puppetdb.pem"
+            - name: PUPPETDB_KEY
+              value: "/opt/puppetlabs/server/data/puppetdb/certs/private_keys/puppetdb.pem"
+            - name: PUPPETBOARD_PORT
+              value: {{ .Values.puppetboard.port | quote }}
+            {{- range $key, $value := .Values.puppetboard.extraEnv }}
+            - name: {{ $key }}
+              value: "{{ $value }}"
+            {{- end }}
+          ports:
+            - name: puppetboard
+              containerPort: {{ .Values.puppetboard.port }}
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+          volumeMounts:
+            - name: puppetdb-storage
+              mountPath: /opt/puppetlabs/server/data/puppetdb/certs
+        {{- end }}
+        {{- if .Values.singleCA.enabled }}
+        # singleCA crl script update Sidecar
+        - name: update-crl
+          image: "{{.Values.r10k.image}}:{{.Values.r10k.tag}}"
+          imagePullPolicy: "{{.Values.r10k.pullPolicy}}"
+          resources:
+            {{- toYaml .Values.singleCA.resources | nindent 12 }}
+          env:
+          - name: SSL_PATH
+            value: /opt/puppetlabs/server/data/puppetdb/certs
+          {{- if .Values.singleCA.crl.credential }}
+          - name: CRL_CREDS_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.singleCA.crl.credential.existingSecret }}
+                key: username
+          - name: CRL_CREDS_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.singleCA.crl.credential.existingSecret }}
+                key: password
+          {{- end }}
+          {{- range $key, $value := .Values.singleCA.extraEnv }}
+          - name: {{ $key }}
+            value: "{{ $value }}"
+          {{- end }}
+          command: ["sh", "-c"]
+          args:
+            - 'chmod +x /opt/puppetlabs/server/data/puppetdb/certs/crl_entrypoint.sh &&'
+            - '/opt/puppetlabs/server/data/puppetdb/certs/crl_entrypoint.sh'
+          securityContext:
+            runAsUser: 999   # "puppet" UID
+            runAsGroup: 999 # "puppet" GID
+          volumeMounts:
+          - name: puppetdb-storage
+            mountPath: /opt/puppetlabs/server/data/puppetdb/certs
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "-ec", "test -f ~/.crl_cronjob.success"]
+            failureThreshold: 2
+            initialDelaySeconds: 5
+            periodSeconds: 20
+            successThreshold: 1
+            timeoutSeconds: 5
+        {{- end }}
+      {{- if .Values.singleCA.puppetdb.overrideHostname }}
+      hostAliases:
+        - ip: {{ required "A valid .Values.puppetdb.service.clusterIP required!" .Values.puppetdb.service.clusterIP }}
+          hostnames:
+          - {{ .Values.singleCA.puppetdb.overrideHostname }}
+      {{- end }}
+      imagePullSecrets:
+      {{- with .Values.global.imagePullSecrets }}
+      {{ toYaml . }}
+      {{- end }}
+      volumes:
+        - name: puppetdb-storage
+        {{- if .Values.puppetdb.customPersistentVolumeClaim.storage.enable }}
+          {{- toYaml .Values.puppetdb.customPersistentVolumeClaim.storage.config | nindent 10 }}
+        {{- else }}
+          persistentVolumeClaim:
+            claimName: puppetdb-claim
+        {{- end }}
+        {{- if .Values.puppetdb.metrics.enabled }}
+        - name: puppetdb-metrics-volume
+          configMap:
+            name: puppetdb-metrics-config
+        {{- end }}
+      {{- if .Values.nodeSelector }}
+      nodeSelector:
+        {{ toYaml .Values.nodeSelector | nindent 10 }}
+      {{- end }}
+      {{- if .Values.affinity }}
+      affinity:
+        {{ toYaml .Values.affinity | nindent 10 }}
+      {{- end }}
+      {{- if .Values.tolerations }}
+      tolerations:
+        {{ toYaml .Values.tolerations| nindent 10 }}
+      {{- end }}
+      {{- if and (.Capabilities.APIVersions.Has "scheduling.k8s.io/v1beta1") (.Values.priorityClassName) }}
+      priorityClassName: {{ .Values.priorityClassName }}
+      {{- end }}
+{{- end }}
