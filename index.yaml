@@ -953,6 +953,52 @@ entries:
     urls:
     - https://github.com/bedag/helm-charts/releases/download/manifests-0.1.0/manifests-0.1.0.tgz
     version: 0.1.0
+  puppetserver:
+  - apiVersion: v2
+    appVersion: 7.4.2
+    created: "2022-07-28T11:31:43.825476374Z"
+    dependencies:
+    - condition: postgresql.enabled
+      name: postgresql
+      repository: https://charts.bitnami.com/bitnami
+      version: 10.16.*
+    description: Puppet automates the delivery and operation of software.
+    digest: eb610718cb81632e10adf7f7d53b559c0df20505a4f5728a4213e32d22f8aff9
+    home: https://puppet.com/
+    icon: https://secure.gravatar.com/avatar/fdd009b7c1ec96e088b389f773e87aec.jpg?s=80&r=g&d=mm
+    keywords:
+    - puppet
+    - puppetserver
+    - automation
+    - iac
+    - infrastructure
+    - cm
+    - ci
+    - cd
+    kubeVersion: '>=1.10.0-0'
+    maintainers:
+    - email: miroslav.hadzhiev@gmail.com
+      name: Xtigyro
+    - email: morgan@puppet.com
+      name: underscorgan
+    - email: slconley@gmail.com
+      name: slconley
+    - email: raphael.pinson@camptocamp.com
+      name: raphink
+    - email: david.phayanouvong@gmail.com
+      name: davidphay
+    - email: reinier@skoef.nl
+      name: skoef
+    - email: pupperware@puppet.com
+      name: Pupperware Team
+    name: puppetserver
+    sources:
+    - https://github.com/puppetlabs/pupperware/
+    - https://github.com/postgres/postgres
+    - https://github.com/bitnami/charts/tree/master/bitnami/postgresql
+    urls:
+    - https://github.com/simonfuhrer/helm-charts-bedag/releases/download/puppetserver-6.4.0/puppetserver-6.4.0.tgz
+    version: 6.4.0
   raw:
   - annotations:
       artifacthub.io/changes: |
@@ -1014,4 +1060,4 @@ entries:
     urls:
     - https://github.com/bedag/helm-charts/releases/download/raw-1.0.0/raw-1.0.0.tgz
     version: 1.0.0
-generated: "2021-11-09T13:16:53.809668395Z"
+generated: "2022-07-28T11:31:43.954725121Z"
